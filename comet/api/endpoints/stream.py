@@ -1,7 +1,5 @@
 from collections import defaultdict
 from urllib.parse import quote
-from collections import defaultdict
-from urllib.parse import quote, urlsplit
 
 from fastapi import APIRouter, BackgroundTasks, Request
 
