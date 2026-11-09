@@ -34,6 +34,32 @@ RESOLUTION_TO_DIMENSIONS = {
 }
 
 
+def _format_stream_sources(raw_sources: list[str] | None, info_hash: str) -> list[str]:
+    formatted_sources: list[str] = [f"dht:{info_hash}"]
+    seen: set[str] = {f"dht:{info_hash}"}
+
+    if raw_sources:
+        for s in raw_sources:
+            if not isinstance(s, str):
+                continue
+            s = s.strip()
+            if not s:
+                continue
+
+            if s.startswith("tracker:") or s.startswith("dht:"):
+                src_val = s
+            elif s.startswith("udp://") or s.startswith("http://") or s.startswith("https://"):
+                src_val = f"tracker:{s}"
+            else:
+                continue
+
+            if src_val not in seen:
+                seen.add(src_val)
+                formatted_sources.append(src_val)
+
+    return formatted_sources
+
+
 def _first_meta_value(value):
     if isinstance(value, list):
         return value[0] if value else ""
@@ -531,7 +557,7 @@ async def stream(
 
             sources = torrent.get("sources") or trackers
             if sources:
-                the_stream["sources"] = sources
+                the_stream["sources"] = _format_stream_sources(sources, info_hash)
 
             cached_results.append(the_stream)
 
