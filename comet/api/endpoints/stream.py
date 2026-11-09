@@ -1,5 +1,7 @@
 from collections import defaultdict
 from urllib.parse import quote
+from collections import defaultdict
+from urllib.parse import quote, urlsplit
 
 from fastapi import APIRouter, BackgroundTasks, Request
 
@@ -34,9 +36,27 @@ RESOLUTION_TO_DIMENSIONS = {
 }
 
 
-def _format_stream_sources(raw_sources: list[str] | None, info_hash: str) -> list[str]:
-    formatted_sources: list[str] = [f"dht:{info_hash}"]
-    seen: set[str] = {f"dht:{info_hash}"}
+def _is_valid_tracker_url(url: str) -> bool:
+    try:
+        parsed = urlsplit(url)
+        return bool(parsed.scheme in ("udp", "http", "https") and parsed.netloc)
+    except Exception:
+        return False
+
+
+def _format_stream_sources(
+    raw_sources: list[str] | None,
+    info_hash: str,
+    is_private: bool = False,
+) -> list[str]:
+    """Format and normalize torrent tracker and DHT sources for Stremio."""
+    formatted_sources: list[str] = []
+    seen: set[str] = set()
+
+    if not is_private:
+        dht_source = f"dht:{info_hash}"
+        formatted_sources.append(dht_source)
+        seen.add(dht_source)
 
     if raw_sources:
         for s in raw_sources:
@@ -46,16 +66,18 @@ def _format_stream_sources(raw_sources: list[str] | None, info_hash: str) -> lis
             if not s:
                 continue
 
-            if s.startswith("tracker:") or s.startswith("dht:"):
-                src_val = s
-            elif s.startswith("udp://") or s.startswith("http://") or s.startswith("https://"):
-                src_val = f"tracker:{s}"
-            else:
+            if s.startswith("dht:"):
+                if not is_private and s not in seen:
+                    seen.add(s)
+                    formatted_sources.append(s)
                 continue
 
-            if src_val not in seen:
-                seen.add(src_val)
-                formatted_sources.append(src_val)
+            tracker_url = s.removeprefix("tracker:")
+            if _is_valid_tracker_url(tracker_url):
+                entry = f"tracker:{tracker_url}"
+                if entry not in seen:
+                    seen.add(entry)
+                    formatted_sources.append(entry)
 
     return formatted_sources
 
@@ -557,7 +579,10 @@ async def stream(
 
             sources = torrent.get("sources") or trackers
             if sources:
-                the_stream["sources"] = _format_stream_sources(sources, info_hash)
+                is_private = bool(torrent.get("is_private") or torrent.get("private"))
+                the_stream["sources"] = _format_stream_sources(
+                    sources, info_hash, is_private=is_private
+                )
 
             cached_results.append(the_stream)
 
